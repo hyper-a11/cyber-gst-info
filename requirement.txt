@@ -1,5 +1,4 @@
-fastapi
-uvicorn
+flask
 requests
 beautifulsoup4
 pytz
