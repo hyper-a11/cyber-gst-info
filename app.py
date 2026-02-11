@@ -72,7 +72,7 @@ def get_gst_data(gstin):
             "state": na(addr.get("stcd")),
             "pincode": na(addr.get("pncd"))
         },
-        "data_source": "CharteredInfo GST API",
+        "data_source": "CYBERXCHAT",
         "last_checked": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
     }
 
@@ -138,5 +138,5 @@ def home():
 # ===============================================
 # ▶️ Local Run (for testing)
 # ===============================================
-if __name__ == "__main__":
-    app.run(debug=True)
+#if __name__ == "__main__":
+    #app.run(debug=True)
