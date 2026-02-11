@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 from datetime import datetime
 import pytz
+import json
 
 app = Flask(__name__)
 
@@ -16,7 +17,7 @@ API_KEYS = {
 }
 
 # ===============================================
-# ⚙️ CONFIGURATION (Headers + Timezone)
+# ⚙️ CONFIGURATION
 # ===============================================
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -33,7 +34,7 @@ def na(val):
     return val if val not in [None, "", []] else "NA"
 
 # ===============================================
-# 🔍 GST DATA FETCH
+# 🔍 GST DATA FETCH LOGIC
 # ===============================================
 def get_gst_data(gstin):
     gstin = gstin.strip().upper()
@@ -122,7 +123,8 @@ def home():
     if "error" in data:
         return jsonify(data), 500
 
-    # 🔖 Branding & key info
+    # 🔖 Branding, key info, and ime field
+    data["ime"] = "GST"
     data["key_details"] = {
         "expiry_date": expiry_str,
         "days_remaining": f"{days_left} Days" if days_left > 0 else "Last Day Today",
