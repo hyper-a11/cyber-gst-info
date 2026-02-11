@@ -7,7 +7,7 @@ import json
 app = Flask(__name__)
 
 # ===============================================
-# 🔐 API KEY DATABASE
+# 🔐 API KEYS
 # ===============================================
 API_KEYS = {
     "ZEXX_PAID8DAYS": "2026-02-25",
@@ -17,126 +17,113 @@ API_KEYS = {
 }
 
 # ===============================================
-# ⚙️ CONFIGURATION
+# ⚙️ CONFIG
 # ===============================================
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
-    "Referer": "https://charteredinfo.com/",
-    "Origin": "https://charteredinfo.com",
-    "Connection": "keep-alive"
+    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "Referer": "https://www.pinelabs.com/"
 }
 
-IST = pytz.timezone("Asia/Kolkata")
-
-def na(val):
-    return val if val not in [None, "", []] else "NA"
+def clean_text(text):
+    if not text:
+        return "NA"
+    return text.strip()
 
 # ===============================================
-# 🔍 GST DATA FETCH LOGIC
+# 🔍 GST SCRAPING
 # ===============================================
-def get_gst_data(gstin):
-    gstin = gstin.strip().upper()
-    url = f"https://gstapi.charteredinfo.com/commonapi/gstreturntracker.ashx?gstin={gstin}"
-
+def get_gst_data(gst_number):
+    gst = gst_number.strip().upper()
+    url = f"https://gstapi.charteredinfo.com/commonapi/gstreturntracker.ashx?gstin={gst}"
+    
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        if r.status_code != 200:
-            return {"error": f"GST source unreachable (Status {r.status_code})"}
-        raw = r.json()
+        response = requests.get(url, headers=HEADERS, timeout=8)
+        response.raise_for_status()
+        gst_json = response.json()
     except Exception as e:
-        return {"error": str(e)}
+        return {"status": "failed", "error": str(e)}
 
-    pradr = raw.get("pradr", {})
-    addr = pradr.get("addr", {})
-
+    # Mapping output
     gst_details = {
-        "gstin": gstin,
-        "legal_name": na(raw.get("lgnm")),
-        "trade_name": na(raw.get("tradeNam")),
-        "constitution_of_business": na(raw.get("ctb")),
-        "taxpayer_type": na(raw.get("dty")),
-        "gst_status": na(raw.get("sts")),
-        "is_active": raw.get("sts") == "Active",
-        "registration_date": na(raw.get("rgdt")),
-        "registration_year": raw.get("rgdt")[:4] if raw.get("rgdt") else "NA",
-        "pan_number": gstin[2:12],
-        "state_code": gstin[:2],
-        "business_nature": na(pradr.get("ntr")),
-        "principal_place": {
-            "building_name": na(addr.get("bnm")),
-            "street": na(addr.get("st")),
-            "location": na(addr.get("loc")),
-            "district": na(addr.get("dst")),
-            "state": na(addr.get("stcd")),
-            "pincode": na(addr.get("pncd"))
-        },
-        "data_source": "CYBERXCHAT",
-        "last_checked": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+        "gstin": gst,
+        "legal_name": gst_json.get("LegalName", "NA"),
+        "trade_name": gst_json.get("TradeName", "NA"),
+        "legal_type": gst_json.get("LegalType", "NA"),
+        "business_type": gst_json.get("BusinessType", "NA"),
+        "taxpayer_type": gst_json.get("TaxpayerType", "NA"),
+        "gst_status": gst_json.get("GSTStatus", "NA"),
+        "is_active": gst_json.get("IsActive", False),
+        "registration_date": gst_json.get("RegistrationDate", "NA"),
+        "registration_year": gst_json.get("RegistrationYear", "NA"),
+        "pan_number": gst_json.get("PANNumber", "NA"),
+        "state_code": gst_json.get("StateCode", "NA"),
+        "principal_place": gst_json.get("PrincipalPlace", "NA"),
+        "other_office": gst_json.get("OtherOffice", "NA"),
+        "office_count": gst_json.get("OfficeCount", 0),
+        "principal_address": gst_json.get("PrincipalAddress", {}),
+        "data_source": "CYBER_ZEXX",
+        "last_checked": datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S")
     }
 
     return {"status": "success", "gst_details": gst_details}
 
 # ===============================================
-# 🌐 API ROUTE WITH KEY AUTH
+# 🌐 API ROUTE
 # ===============================================
 @app.route("/", methods=["GET"])
 def home():
-    gstin = request.args.get("gst") or request.args.get("num")
-    user_key = request.args.get("key")
+    try:
+        gst = request.args.get("gst")
+        user_key = request.args.get("key")
 
-    # 🔑 Key validation
-    if not user_key:
-        return jsonify({"status": "Failed", "error": "API Key missing"}), 401
+        # 1️⃣ Key validation
+        if not user_key:
+            return jsonify({"error": "API Key missing!", "status": "Failed"}), 401
+        if user_key not in API_KEYS:
+            return jsonify({"error": "Invalid API Key!", "status": "Failed"}), 401
 
-    if user_key not in API_KEYS:
-        return jsonify({"status": "Failed", "error": "Invalid API Key"}), 401
+        # 2️⃣ Key expiry check
+        expiry_str = API_KEYS[user_key]
+        tz = pytz.timezone("Asia/Kolkata")
+        today = datetime.now(tz).date()
+        expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
+        days_left = (expiry_date - today).days
 
-    # ⏳ Expiry check
-    expiry_str = API_KEYS[user_key]
-    today = datetime.now(IST).date()
-    expiry_date = datetime.strptime(expiry_str, "%Y-%m-%d").date()
-    days_left = (expiry_date - today).days
-
-    if days_left < 0:
-        return jsonify({
-            "status": "Expired",
-            "error": "Key Expired",
-            "expiry_date": expiry_str
-        }), 403
-
-    if not gstin:
-        return jsonify({
-            "status": "Failed",
-            "error": "GST number missing. Use ?gst=GSTIN&key=YOURKEY",
-            "key_details": {
+        if days_left < 0:
+            return jsonify({
+                "error": "Key Expired!",
                 "expiry_date": expiry_str,
-                "days_remaining": f"{days_left} Days",
-                "status": "Active"
-            }
-        }), 400
+                "status": "Expired",
+                "message": f"Aapki key {expiry_str} ko khatam ho chuki hai."
+            }), 403
 
-    # 📡 Fetch GST data
-    data = get_gst_data(gstin)
+        # 3️⃣ GST check
+        if not gst:
+            return jsonify({
+                "error": "GST Number missing. Use ?gst=NUMBER&key=YOURKEY",
+                "key_details": {
+                    "expiry_date": expiry_str,
+                    "days_remaining": f"{days_left} Days" if days_left > 0 else "Last Day Today",
+                    "status": "Active"
+                }
+            }), 400
 
-    if "error" in data:
-        return jsonify(data), 500
+        # 4️⃣ Fetch GST Data
+        data = get_gst_data(gst)
 
-    # 🔖 Branding, key info, and ime field
-    data["ime"] = "GST"
-    data["key_details"] = {
-        "expiry_date": expiry_str,
-        "days_remaining": f"{days_left} Days" if days_left > 0 else "Last Day Today",
-        "status": "Active"
-    }
-    data["source"] = "@ZEXX_CYBER"
-    data["powered_by"] = "@CYBER×CHAT"
+        # 5️⃣ Add branding & key info
+        if "error" in data:
+            return jsonify(data), 500
 
-    return jsonify(data)
+        data["key_details"] = {
+            "expiry_date": expiry_str,
+            "days_remaining": f"{days_left} Days" if days_left > 0 else "Last Day Today",
+            "status": "Active"
+        }
+        data["source"] = "@ZEXX_CYBER"
+        data["powered_by"] = "@ZEXX_CYBER"
 
-# ===============================================
-# ▶️ Local Run (for testing)
-# ===============================================
-#if __name__ == "__main__":
-    #app.run(debug=True)
+        return jsonify(data)
+
+    except Exception as e:
+        return jsonify({"status": "failed", "error": str(e)}), 500
